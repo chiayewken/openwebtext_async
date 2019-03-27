@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import io
+import time
 import json
 import tarfile
 import warnings
@@ -12,17 +13,19 @@ from tqdm import tqdm
 import multiprocessing as mpl
 
 # for backward compatibility
+from six.moves.urllib.request import urlopen
 
 from utils import mkdir, chunks, extract_month
 from scrapers import bs4_scraper, newspaper_scraper, raw_scraper
-from download import load_urls, vet_link, download, archive_chunk, get_state, set_state
 
 parser = argparse.ArgumentParser()
-parser.add_argument("url_files_folder", type=str)
+parser.add_argument(
+    "--urls_dir", type=str, default="urls", help="folder that contains url txt files"
+)
 parser.add_argument(
     "--save_uncompressed",
     action="store_true",
-    default=False,
+    default=True,
     help="whether to save the raw txt files to disk",
 )
 parser.add_argument(
@@ -34,13 +37,13 @@ parser.add_argument(
 parser.add_argument(
     "--n_procs",
     type=int,
-    default=1,
+    default=20,
     help="how many processes (cores) to use for parallel scraping",
 )
 parser.add_argument(
     "--timeout",
     type=int,
-    default=-1,
+    default=30,
     help="maximum scrape time for a single URL; -1 means no limit",
 )
 parser.add_argument(
@@ -52,7 +55,7 @@ parser.add_argument(
 parser.add_argument(
     "--chunk_size",
     type=int,
-    default=100,
+    default=100000,
     help="how many URLs to scrape before saving to archive",
 )
 parser.add_argument(
@@ -94,79 +97,184 @@ if not args.show_warnings:
     warnings.filterwarnings("ignore")
 
 
-def download_single_url_file(
-    url_file, n_procs, output_dir, max_urls, chunk_size, timeout, compress, compress_fmt
-):
-    month = extract_month(url_file)
+def load_urls(url_file, completed_fids, max_urls=-1):
+    with open(url_file) as fh:
+        url_entries = [
+            (fid, url) for (fid, url) in enumerate(fh) if fid not in completed_fids
+        ]
+        if max_urls != -1:
+            url_entries = url_entries[:max_urls]
+    return url_entries
 
-    # in case we are resuming from a previous run
-    completed_uids, state_fp, prev_cid = get_state(month, output_dir)
 
-    # URLs we haven't scraped yet (if first run, all URLs in file)
-    url_entries = load_urls(url_file, completed_uids, max_urls)
+def vet_link(link):
+    # check if server responds with non-200 status code or link points to a
+    # non-html file
+    link_type, link_status = "", -1
+    try:
+        info = urlopen(link)
+        link_type = info.headers["Content-Type"]
+        link_status = info.status
+    except:
+        pass
 
-    pool = mpl.Pool(n_procs)
+    # we want "text/html" only!
+    is_good_link = False
+    if "text/html" in link_type and link_status == 200:
+        is_good_link = True
 
-    # process one "chunk" of chunk_size URLs at a time
-    for i, chunk in enumerate(chunks(url_entries, chunk_size)):
-        cid = prev_cid + i + 1
+    return is_good_link, link_type
 
-        print("Downloading chunk {}".format(cid))
-        t1 = time.time()
 
-        if timeout > 0:
-            # imap as iterator allows .next() w/ timeout.
-            # ordered version doesn't seem to work correctly.
-            # for some reason, you CANNOT track j or chunk[j] in the loop,
-            # so don't add anything else to the loop below!
-            # confusingly, chunksize below is unrelated to our chunk_size
-            chunk_iter = pool.imap_unordered(download, chunk, chunksize=1)
-            cdata = []
-            for j in range(len(chunk)):
-                try:
-                    result = chunk_iter.next(timeout=timeout)
-                    cdata.append(result)
-                except mpl.TimeoutError:
-                    print("   --- Timeout Error ---   ")
-        else:
-            cdata = list(pool.imap(download, chunk, chunksize=1))
+def archive_chunk(month, cid, cdata, out_dir, fmt):
+    mkdir(out_dir)
+    texts, metas, fids, uids = zip(*cdata)
 
-        set_state(state_fp, cdata)
-        print("{} / {} downloads timed out".format(len(chunk) - len(cdata), len(chunk)))
-        print("Chunk time: {} seconds".format(time.time() - t1))
+    data_tar = os.path.join(out_dir, "{}-{}_data.{}".format(month, cid, fmt))
+    meta_tar = os.path.join(out_dir, "{}-{}_meta.{}".format(month, cid, fmt))
+    tar_fps, texts, exts = [data_tar, meta_tar], [texts, metas], ["txt", "json"]
 
-        # archive and save this chunk to file
-        if compress:
-            print("Compressing...")
-            t2 = time.time()
-            count = archive_chunk(month, cid, cdata, output_dir, compress_fmt)
-            print("Archive created in {} seconds".format(time.time() - t2))
-            print("{} out of {} URLs yielded content\n".format(count, len(chunk)))
+    doc_count = 0
+    docs_counted = False
+    for tar_fp, txts, ext in zip(tar_fps, texts, exts):
+        with tarfile.open(tar_fp, "w:" + fmt) as tar:
+            for f, fid in zip(txts, fids):
+                if f == "":
+                    continue
+                else:
+                    if not docs_counted:
+                        doc_count += 1
 
-    print("Done!")
+                if ext == "json":
+                    f = json.dumps(f)
+
+                f = f.encode("utf-8")
+                t = tarfile.TarInfo("{}.{}".format(fid, ext))
+                t.size = len(f)
+                tar.addfile(t, io.BytesIO(f))
+        docs_counted = True
+
+    return doc_count
+
+
+#######################################################################
+#                           Util functions                            #
+#######################################################################
+
+
+def get_state(month, out_dir):
+    mkdir("state")
+    latest_cid = 0
+    completed_uids = set()
+    state_fp = os.path.join("state", "{}.txt".format(month))
+    if os.path.isfile(state_fp):
+        archives = glob(os.path.join(out_dir, "{}-*".format(month)))
+        latest_cid = max([int(a.split("-")[-1].split("_")[0]) for a in archives])
+        with open(state_fp, "r") as fh:
+            completed_uids = set(int(i.strip()) for i in list(fh))
+    return completed_uids, state_fp, latest_cid
+
+
+def set_state(state_fp, cdata):
+    _, _, _, uids = zip(*cdata)
+    with open(state_fp, "a+") as handle:
+        for uid in uids:
+            handle.write("{}\n".format(uid))
 
 
 if __name__ == "__main__":
-    args.url_files_folder
-    """ 
-    extract url_files from args.folder
-    for url_file in folder:
-        download from single url file
+    print("downloading from urls in: {}".format(args.urls_dir))
+    print("saving downloaded chunks to: {}".format(args.output_dir))
+    for url_file in tqdm(os.listdir(args.urls_dir)):
+        fullpath = os.path.join(args.urls_dir, url_file)
+        month = extract_month(fullpath)
 
-    example usage:
-    python download.py url_dumps_deduped/RS_20XX-XX.xz.deduped.txt --n_procs 100 --scraper raw --chunk_size 100000 --compress --timeout 30
-    """
-    for url_file in tqdm(os.listdir(args.url_files_folder)):
-        fullpath = os.path.join(args.url_files_folder, url_file)
+        def download(
+            url_entry,
+            scraper=args.scraper,
+            save_uncompressed=args.save_uncompressed,
+            memoize=args.scraper_memoize,
+        ):
+            uid, url = url_entry
+            url = url.strip()
+            fid = "{:07d}-{}".format(uid, md5(url.encode()).hexdigest())
 
-        download_single_url_file(
-            fullpath,
-            args.n_procs,
-            args.output_dir,
-            args.max_urls,
-            args.chunk_size,
-            args.timeout,
-            args.compress,
-            args.compress_fmt,
-        )
-    pass
+            # is_good_link, link_type = vet_link(url)
+            # if not is_good_link:
+            #     return
+
+            if scraper == "bs4":
+                scrape = bs4_scraper
+            elif scraper == "newspaper":
+                scrape = newspaper_scraper
+            elif scraper == "raw":
+                scrape = raw_scraper
+
+            text, meta = scrape(url, memoize)
+            if text is None or text.strip() == "":
+                return ("", "", fid, uid)
+
+            if save_uncompressed:
+                data_dir = mkdir(os.path.join(args.output_dir, "data", month))
+                meta_dir = mkdir(os.path.join(args.output_dir, "meta", month))
+                text_fp = os.path.join(data_dir, "{}.txt".format(fid))
+                meta_fp = os.path.join(meta_dir, "{}.json".format(fid))
+
+                with open(text_fp, "w") as out:
+                    out.write(text)
+                with open(meta_fp, "w") as out:
+                    json.dump(meta, out)
+
+            return (text, meta, fid, uid)
+
+        # in case we are resuming from a previous run
+        completed_uids, state_fp, prev_cid = get_state(month, args.output_dir)
+
+        # URLs we haven't scraped yet (if first run, all URLs in file)
+        url_entries = load_urls(fullpath, completed_uids, args.max_urls)
+
+        pool = mpl.Pool(args.n_procs)
+
+        # process one "chunk" of args.chunk_size URLs at a time
+        for i, chunk in enumerate(chunks(url_entries, args.chunk_size)):
+            cid = prev_cid + i + 1
+
+            print("Downloading chunk {}".format(cid))
+            t1 = time.time()
+
+            if args.timeout > 0:
+                # imap as iterator allows .next() w/ timeout.
+                # ordered version doesn't seem to work correctly.
+                # for some reason, you CANNOT track j or chunk[j] in the loop,
+                # so don't add anything else to the loop below!
+                # confusingly, chunksize below is unrelated to our chunk_size
+                chunk_iter = pool.imap_unordered(download, chunk, chunksize=1)
+                cdata = []
+                for j in range(len(chunk)):
+                    try:
+                        result = chunk_iter.next(timeout=args.timeout)
+                        cdata.append(result)
+                    except mpl.TimeoutError:
+                        print("   --- Timeout Error ---   ")
+            else:
+                cdata = list(pool.imap(download, chunk, chunksize=1))
+
+            set_state(state_fp, cdata)
+            print(
+                "{} / {} downloads timed out".format(
+                    len(chunk) - len(cdata), len(chunk)
+                )
+            )
+            print("Chunk time: {} seconds".format(time.time() - t1))
+
+            # archive and save this chunk to file
+            if args.compress:
+                print("Compressing...")
+                t2 = time.time()
+                count = archive_chunk(
+                    month, cid, cdata, args.output_dir, args.compress_fmt
+                )
+                print("Archive created in {} seconds".format(time.time() - t2))
+                print("{} out of {} URLs yielded content\n".format(count, len(chunk)))
+
+        print("Done!")

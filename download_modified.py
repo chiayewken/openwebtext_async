@@ -17,82 +17,6 @@ from six.moves.urllib.request import urlopen
 from utils import mkdir, chunks, extract_month
 from scrapers import bs4_scraper, newspaper_scraper, raw_scraper
 
-parser = argparse.ArgumentParser()
-parser.add_argument("url_file", type=str)
-parser.add_argument(
-    "--save_uncompressed",
-    action="store_true",
-    default=False,
-    help="whether to save the raw txt files to disk",
-)
-parser.add_argument(
-    "--output_dir",
-    type=str,
-    default="scraped",
-    help="which folder in the working directory to use for output",
-)
-parser.add_argument(
-    "--n_procs",
-    type=int,
-    default=1,
-    help="how many processes (cores) to use for parallel scraping",
-)
-parser.add_argument(
-    "--timeout",
-    type=int,
-    default=-1,
-    help="maximum scrape time for a single URL; -1 means no limit",
-)
-parser.add_argument(
-    "--max_urls",
-    type=int,
-    default=-1,
-    help="maximum # of URLs to scrape; mostly for debugging",
-)
-parser.add_argument(
-    "--chunk_size",
-    type=int,
-    default=100,
-    help="how many URLs to scrape before saving to archive",
-)
-parser.add_argument(
-    "--scraper",
-    type=str,
-    default="newspaper",
-    choices=["raw", "bs4", "newspaper"],
-    help="which text/content scraper to use; raw is html",
-)
-parser.add_argument(
-    "--compress",
-    action="store_true",
-    default=False,
-    help="whether to output scraped content as compressed archives",
-)
-parser.add_argument(
-    "--compress_fmt",
-    type=str,
-    default="xz",
-    choices=["xz", "bz2", "gz"],
-    help="which archive format to use",
-)
-parser.add_argument(
-    "--scraper_memoize",
-    action="store_true",
-    default=False,
-    help="whether to use cache for newspaper",
-)
-parser.add_argument(
-    "--show_warnings",
-    action="store_true",
-    default=False,
-    help="whether to show warnings in general during scraping",
-)
-args = parser.parse_args()
-
-if not args.show_warnings:
-    # avoid lots of datetime warnings
-    warnings.filterwarnings("ignore")
-
 
 def load_urls(url_file, completed_fids, max_urls=-1):
     with open(url_file) as fh:
@@ -121,46 +45,6 @@ def vet_link(link):
         is_good_link = True
 
     return is_good_link, link_type
-
-
-def download(
-    url_entry,
-    scraper=args.scraper,
-    save_uncompressed=args.save_uncompressed,
-    memoize=args.scraper_memoize,
-):
-    uid, url = url_entry
-    url = url.strip()
-    fid = "{:07d}-{}".format(uid, md5(url.encode()).hexdigest())
-
-    # is_good_link, link_type = vet_link(url)
-    # if not is_good_link:
-    #     return
-
-    if scraper == "bs4":
-        scrape = bs4_scraper
-    elif scraper == "newspaper":
-        scrape = newspaper_scraper
-    elif scraper == "raw":
-        scrape = raw_scraper
-
-    text, meta = scrape(url, memoize)
-    if text is None or text.strip() == "":
-        return ("", "", fid, uid)
-
-    if save_uncompressed:
-        month = extract_month(args.url_file)
-        data_dir = mkdir(op.join(args.output_dir, "data", month))
-        meta_dir = mkdir(op.join(args.output_dir, "meta", month))
-        text_fp = op.join(data_dir, "{}.txt".format(fid))
-        meta_fp = op.join(meta_dir, "{}.json".format(fid))
-
-        with open(text_fp, "w") as out:
-            out.write(text)
-        with open(meta_fp, "w") as out:
-            json.dump(meta, out)
-
-    return (text, meta, fid, uid)
 
 
 def archive_chunk(month, cid, cdata, out_dir, fmt):
@@ -219,14 +103,60 @@ def set_state(state_fp, cdata):
             handle.write("{}\n".format(uid))
 
 
-if __name__ == "__main__":
-    month = extract_month(args.url_file)
+def main(url_file, args):
+    def download(
+        url_entry,
+        scraper=args.scraper,
+        save_uncompressed=args.save_uncompressed,
+        memoize=args.scraper_memoize,
+    ):
+        uid, url = url_entry
+        url = url.strip()
+        fid = "{:07d}-{}".format(uid, md5(url.encode()).hexdigest())
+
+        # is_good_link, link_type = vet_link(url)
+        # if not is_good_link:
+        #     return
+
+        if scraper == "bs4":
+            scrape = bs4_scraper
+        elif scraper == "newspaper":
+            scrape = newspaper_scraper
+        elif scraper == "raw":
+            scrape = raw_scraper
+
+        text, meta = scrape(url, memoize)
+        if text is None or text.strip() == "":
+            return ("", "", fid, uid)
+
+        if save_uncompressed:
+            month = extract_month(args.url_file)
+            data_dir = mkdir(op.join(args.output_dir, "data", month))
+            meta_dir = mkdir(op.join(args.output_dir, "meta", month))
+            text_fp = op.join(data_dir, "{}.txt".format(fid))
+            meta_fp = op.join(meta_dir, "{}.json".format(fid))
+
+            with open(text_fp, "w") as out:
+                out.write(text)
+            with open(meta_fp, "w") as out:
+                json.dump(meta, out)
+
+        return (text, meta, fid, uid)
+
+
+    # separate url_file argument for batch_download later on
+    # the rest of the args are constant, but batch_download call main() on many url_file(s)
+    if not args.show_warnings:
+        # avoid lots of datetime warnings
+        warnings.filterwarnings("ignore")
+
+    month = extract_month(url_file)
 
     # in case we are resuming from a previous run
     completed_uids, state_fp, prev_cid = get_state(month, args.output_dir)
 
     # URLs we haven't scraped yet (if first run, all URLs in file)
-    url_entries = load_urls(args.url_file, completed_uids, args.max_urls)
+    url_entries = load_urls(url_file, completed_uids, args.max_urls)
 
     pool = mpl.Pool(args.n_procs)
 
@@ -267,3 +197,78 @@ if __name__ == "__main__":
             print("{} out of {} URLs yielded content\n".format(count, len(chunk)))
 
     print("Done!")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("url_file", type=str)
+    parser.add_argument(
+        "--save_uncompressed",
+        action="store_true",
+        default=False,
+        help="whether to save the raw txt files to disk",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="scraped",
+        help="which folder in the working directory to use for output",
+    )
+    parser.add_argument(
+        "--n_procs",
+        type=int,
+        default=1,
+        help="how many processes (cores) to use for parallel scraping",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=-1,
+        help="maximum scrape time for a single URL; -1 means no limit",
+    )
+    parser.add_argument(
+        "--max_urls",
+        type=int,
+        default=-1,
+        help="maximum # of URLs to scrape; mostly for debugging",
+    )
+    parser.add_argument(
+        "--chunk_size",
+        type=int,
+        default=100,
+        help="how many URLs to scrape before saving to archive",
+    )
+    parser.add_argument(
+        "--scraper",
+        type=str,
+        default="newspaper",
+        choices=["raw", "bs4", "newspaper"],
+        help="which text/content scraper to use; raw is html",
+    )
+    parser.add_argument(
+        "--compress",
+        action="store_true",
+        default=False,
+        help="whether to output scraped content as compressed archives",
+    )
+    parser.add_argument(
+        "--compress_fmt",
+        type=str,
+        default="xz",
+        choices=["xz", "bz2", "gz"],
+        help="which archive format to use",
+    )
+    parser.add_argument(
+        "--scraper_memoize",
+        action="store_true",
+        default=False,
+        help="whether to use cache for newspaper",
+    )
+    parser.add_argument(
+        "--show_warnings",
+        action="store_true",
+        default=False,
+        help="whether to show warnings in general during scraping",
+    )
+    args = parser.parse_args()
+    main(args.url_file, args)

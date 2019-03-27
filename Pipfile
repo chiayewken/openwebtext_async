@@ -16,6 +16,7 @@ htmlmin = "*"
 urlparse2 = "*"
 pandas = "*"
 pyyaml = "==5.1"
+tqdm = "*"
 
 [requires]
 python_version = "3.7"
