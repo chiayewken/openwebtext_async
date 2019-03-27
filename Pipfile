@@ -1,0 +1,21 @@
+[[source]]
+name = "pypi"
+url = "https://pypi.org/simple"
+verify_ssl = true
+
+[dev-packages]
+ipython = "*"
+ipdb = "*"
+
+[packages]
+beautifulsoup4 = "*"
+lxml = "*"
+tldextract = "*"
+newspaper3k = "*"
+htmlmin = "*"
+urlparse2 = "*"
+pandas = "*"
+pyyaml = "==5.1"
+
+[requires]
+python_version = "3.7"
