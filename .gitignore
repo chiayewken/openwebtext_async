@@ -1,3 +1,7 @@
+# txt files except for requirements.txt
+*.txt
+#!requirements.txt
+
 # compressed archives
 *.bz2
 *.xz
