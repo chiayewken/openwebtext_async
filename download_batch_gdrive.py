@@ -241,7 +241,7 @@ def firebase_init(gdrive_dir):
     path_json, database_url = open(
         gdrive_dir.joinpath("firebase_details.txt")
     ).readlines()
-    cred = credentials.Certificate(gdrive_dir.joinpath(path_json.strip()))
+    cred = credentials.Certificate(str(gdrive_dir.joinpath(path_json.strip())))
     firebase_admin.initialize_app(cred, {"databaseURL": database_url.strip()})
     print("firebase initialized")
 
