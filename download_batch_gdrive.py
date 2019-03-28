@@ -20,7 +20,7 @@ from utils import mkdir, chunks, extract_month
 from scrapers import bs4_scraper, newspaper_scraper, raw_scraper
 
 parser = argparse.ArgumentParser()
-parser.add_argument("gdrive_dir", type=str, help="google drive working directory")
+parser.add_argument("gdrive_dir", type=str)
 parser.add_argument("--url_file", type=str)
 parser.add_argument(
     "--save_uncompressed",
@@ -249,6 +249,7 @@ if __name__ == "__main__":
     dir_downloads = gdrive_dir.joinpath("downloads")
     dir_downloads.mkdir(exist_ok=True)
     urls = [p for p in dir_urls.iterdir() if p.is_file()]
+    print("urls found: ", len(urls))
     local_folders = [args.output_dir, args.state_dir]
 
     for url in urls:
