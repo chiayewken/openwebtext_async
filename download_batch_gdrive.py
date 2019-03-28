@@ -13,6 +13,10 @@ from hashlib import md5
 from pathlib import Path
 import multiprocessing as mpl
 
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+
 # for backward compatibility
 from six.moves.urllib.request import urlopen
 
@@ -233,6 +237,35 @@ def namify(x):
     return str(x).split("/")[-1].split(".")[0]
 
 
+def firebase_init(gdrive_dir):
+    path_json, database_url = open(
+        gdrive_dir.joinpath("firebase_details.txt")
+    ).readlines()
+    cred = credentials.Certificate(gdrive_dir.joinpath(path_json.strip()))
+    firebase_admin.initialize_app(cred, {"databaseURL": database_url.strip()})
+    print("firebase initialized")
+
+
+def firebase_batch_status_update(gdrive_dir):
+    urls_dir = gdrive_dir.joinpath("urls")
+    downloads_dir = gdrive_dir.joinpath("downloads")
+    urls = [p for p in urls_dir.iterdir() if p.is_file()]
+    for url in urls:
+        name = namify(url)
+        path_output = downloads_dir.joinpath(name)
+        db.reference().child(name).set(path_output.exists())
+
+
+def firebase_check_status_url_file(url):
+    return db.reference(namify(url)).get()
+
+
+def firebase_set_status_url_file(url, status):
+    assert type(status) == bool, "status value must be boolean"
+    db.reference(namify(url)).set(status)
+    print("{} handled status set to: {}".format(url, status))
+
+
 if __name__ == "__main__":
     """
     obtain list of urls from gdrive urls folder
@@ -245,19 +278,20 @@ if __name__ == "__main__":
         send archive to google drive
     """
     gdrive_dir = Path(args.gdrive_dir)
-    dir_urls = gdrive_dir.joinpath("urls")
-    dir_downloads = gdrive_dir.joinpath("downloads")
-    dir_downloads.mkdir(exist_ok=True)
-    urls = [p for p in dir_urls.iterdir() if p.is_file()]
+    urls_dir = gdrive_dir.joinpath("urls")
+    downloads_dir = gdrive_dir.joinpath("downloads")
+    downloads_dir.mkdir(exist_ok=True)
+    urls = [p for p in urls_dir.iterdir() if p.is_file()]
     print("urls found: ", len(urls))
     local_folders = [args.output_dir, args.state_dir]
+    firebase_init(gdrive_dir)
 
     for url in urls:
-        path_output = dir_downloads.joinpath(namify(url))
-        if path_output.exists():
-            continue
+        if firebase_check_status_url_file(url) is True:
+            continue  # url file has been handled; skip
 
-        print("doing: ", path_output)
+        firebase_set_status_url_file(url, True)
+        path_output = downloads_dir.joinpath(namify(url))
         path_output.mkdir()
 
         for folder in local_folders:
