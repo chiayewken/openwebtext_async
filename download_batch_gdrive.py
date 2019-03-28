@@ -254,7 +254,7 @@ if __name__ == "__main__":
 
     for url in urls:
         path_output = dir_downloads.joinpath(namify(url))
-        if not path_output.exists():
+        if path_output.exists():
             continue
 
         print("doing: ", path_output)
