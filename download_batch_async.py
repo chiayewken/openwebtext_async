@@ -1,15 +1,15 @@
 import asyncio
-from aiohttp import ClientSession
-from pathlib import Path
-from tqdm import tqdm
-import tarfile
-import shutil
 import math
-import firebase_admin
-from firebase_admin import credentials
-from firebase_admin import db
-import tempfile
+import shutil
 import sys
+import tarfile
+import tempfile
+from pathlib import Path
+
+import firebase_admin
+from aiohttp import ClientSession
+from firebase_admin import credentials, db
+from tqdm import tqdm
 
 sys.tracebacklimit = 0  # suppress url error reports
 
@@ -77,9 +77,13 @@ def save_htmls(htmls, save_dir):
                 file.write(h)
 
 
-def archive(path_in, path_out):
-    with tarfile.open(path_out, "w") as tar:
+def archive(path_in, path_out, compress=True):
+    mode = {False: "w", True: "w:gz"}[compress]
+    suffix = {False: ".tar", True: ".tgz"}[compress]
+    path_out = path_out.with_suffix(suffix)
+    with tarfile.open(path_out, mode) as tar:
         tar.add(path_in)
+    return path_out
 
 
 def count_total_lines(file):
@@ -94,11 +98,11 @@ def count_batches(total, batch_size):
     return math.ceil(total / batch_size)
 
 
-def firebase_init(work_dir):
+def firebase_init(gdrive_dir):
     path_json, database_url = open(
-        work_dir.joinpath("firebase_details.txt")
+        gdrive_dir.joinpath("firebase_details.txt")
     ).readlines()
-    cred = credentials.Certificate(str(work_dir.joinpath(path_json.strip())))
+    cred = credentials.Certificate(str(gdrive_dir.joinpath(path_json.strip())))
     firebase_admin.initialize_app(cred, {"databaseURL": database_url.strip()})
     print("firebase initialized")
 
@@ -118,7 +122,7 @@ def get_batch_urls(urls_file, idx, batch_size):
         return [x.strip() for (i, x) in enumerate(f) if i in batch_range]
 
 
-def main(work_dir, batch_size=100000):
+def main(gdrive_dir, batch_size=100000):
     """
     get chunks
     fetch htmls
@@ -126,8 +130,21 @@ def main(work_dir, batch_size=100000):
     send to google drive
     delete archive
     """
-    num_total_urls = count_total_lines(work_dir.joinpath("urls.txt"))
+    save_dir = Path("downloads")
+    save_dir.mkdir(exist_ok=True)
+    gdrive_dir.joinpath(save_dir).mkdir(exist_ok=True)
+    num_total_urls = count_total_lines(gdrive_dir.joinpath("urls.txt"))
     num_total_batchs = count_batches(num_total_urls, batch_size)
-    # for i in range(num_total_batchs):
-    #     if
+    for batch_idx in range(num_total_batchs):
+        # this format will allow us to recover exact line indices if necessary
+        batch_name = "{}_{}".format(batch_size, batch_idx)
+        if not firebase_check_exists(batch_name):
+            continue  # skip
 
+        firebase_set(batch_name, True)
+        urls = get_batch_urls(batch_idx, batch_size)
+        htmls = fetch_htmls(urls)
+        save_htmls(htmls, save_dir)
+        archive_fname = archive(save_dir, Path(batch_name), compress=True)
+        shutil.move(archive_fname, gdrive_dir.joinpath(save_dir, archive_fname))
+        shutil.rmtree(save_dir)
