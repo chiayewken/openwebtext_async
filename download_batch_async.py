@@ -130,7 +130,9 @@ def firebase_init(gdrive_dir):
 
 
 def firebase_check_exists(id):
-    return str(id) in db.reference().get()
+    database = db.reference().get()
+    # firebase acts like empty array when empty (nonetype iteration error)
+    return database != None and str(id) in database
 
 
 def firebase_set(id, value):
