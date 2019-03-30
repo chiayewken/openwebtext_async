@@ -128,6 +128,6 @@ def main(work_dir, batch_size=100000):
     """
     num_total_urls = count_total_lines(work_dir.joinpath("urls.txt"))
     num_total_batchs = count_batches(num_total_urls, batch_size)
-    for i in range(num_total_batchs):
-        if 
+    # for i in range(num_total_batchs):
+    #     if
 
