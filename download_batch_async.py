@@ -15,9 +15,9 @@ async def fetch(url, session):
     try:
         # timeout 7s -> 1min for 10k urls (4k success)
         # timeout 30s -> 3min for 10k urls (7k success)
-        async with session.get(url, allow_redirects=True, timeout=30) as response:
-            return await response.text()
-    except Exception as e:
+        async with session.get(url, allow_redirects=True, timeout=30) as r:
+            return await r.text()
+    except Exception:
         return ""
 
 
@@ -40,10 +40,14 @@ async def fetch_htmls_loop(urls):
             task = asyncio.ensure_future(bound_fetch(sem, url, session))
             tasks.append(task)
 
-        # processing with newspaper.fulltext is very slow (5min/1000urls) (18mb)
+        # newspaper.fulltext is very slow (5min/1000urls) (18mb)
         # best to save raw html
-        responses = asyncio.gather(*tasks)
-        return await responses
+        # responses = asyncio.gather(*tasks)
+        # await responses
+        responses = []
+        for t in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks)):
+            responses.append(await t)
+        return responses
 
 
 def fetch_htmls(urls):
