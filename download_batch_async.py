@@ -4,42 +4,36 @@ import shutil
 import sys
 import tarfile
 import tempfile
-import newspaper
 from pathlib import Path
 
 import firebase_admin
 from aiohttp import ClientSession
 from firebase_admin import credentials, db
 from tqdm import tqdm
-from multiprocessing import Pool
+
+# def newspaper_get_html(url):
+#     try:
+#         a = newspaper.Article(url)
+#         a.download()
+#         html_string = a.html
+
+#         if is_html(html_string):
+#             with open(generate_name(".html"), "w") as file:
+#                 file.write(html_string)
+#         return html_string
+#     except Exception:
+#         return None
 
 
-sys.tracebacklimit = 0  # suppress url error reports
+# def newspaper_fetch_htmls(urls):
+#     # slow sequential version
+#     return [newspaper_get_html(url) for url in tqdm(urls)]
 
 
-def newspaper_get_html(url):
-    try:
-        a = newspaper.Article(url)
-        a.download()
-        html_string = a.html
-
-        if is_html(html_string):
-            with open(generate_name(".html"), "w") as file:
-                file.write(html_string)
-        return html_string
-    except Exception:
-        return None
-
-
-def newspaper_fetch_htmls(urls):
-    # slow sequential version
-    return [newspaper_get_html(url) for url in tqdm(urls)]
-
-
-def pool_newspaper_fetch_htmls(urls, poolsize=None):
-    # poolsize 50 seems to be best
-    with Pool(poolsize) as pool:
-        return list(tqdm(pool.imap_unordered(newspaper_get_html, urls)))
+# def pool_newspaper_fetch_htmls(urls, poolsize=None):
+#     # poolsize 50 seems to be best
+#     with Pool(poolsize) as pool:
+#         return list(tqdm(pool.imap_unordered(newspaper_get_html, urls)))
 
 
 async def fetch(url, session):
@@ -159,6 +153,8 @@ def main(gdrive_dir, batch_size=100000):
     send to google drive
     delete archive
     """
+    sys.tracebacklimit = 0  # suppress url error reports
+
     firebase_init(gdrive_dir)
     save_dir = Path("downloads")
     save_dir.mkdir(exist_ok=True)
