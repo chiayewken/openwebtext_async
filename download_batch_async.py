@@ -4,14 +4,42 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import newspaper
 from pathlib import Path
 
 import firebase_admin
 from aiohttp import ClientSession
 from firebase_admin import credentials, db
 from tqdm import tqdm
+from multiprocessing import Pool
+
 
 sys.tracebacklimit = 0  # suppress url error reports
+
+
+def newspaper_get_html(url):
+    try:
+        a = newspaper.Article(url)
+        a.download()
+        html_string = a.html
+
+        if is_html(html_string):
+            with open(generate_name(".html"), "w") as file:
+                file.write(html_string)
+        return html_string
+    except Exception:
+        return None
+
+
+def newspaper_fetch_htmls(urls):
+    # slow sequential version
+    return [newspaper_get_html(url) for url in tqdm(urls)]
+
+
+def pool_newspaper_fetch_htmls(urls, poolsize=None):
+    # poolsize 50 seems to be best
+    with Pool(poolsize) as pool:
+        return list(tqdm(pool.imap_unordered(newspaper_get_html, urls)))
 
 
 async def fetch(url, session):
@@ -124,17 +152,20 @@ def get_batch_urls(urls_file, idx, batch_size):
 
 def main(gdrive_dir, batch_size=100000):
     """
+    init
     get chunks
     fetch htmls
     save and archive
     send to google drive
     delete archive
     """
+    firebase_init(gdrive_dir)
     save_dir = Path("downloads")
     save_dir.mkdir(exist_ok=True)
     gdrive_dir.joinpath(save_dir).mkdir(exist_ok=True)
     num_total_urls = count_total_lines(gdrive_dir.joinpath("urls.txt"))
     num_total_batchs = count_batches(num_total_urls, batch_size)
+
     for batch_idx in range(num_total_batchs):
         # this format will allow us to recover exact line indices if necessary
         batch_name = "{}_{}".format(batch_size, batch_idx)
