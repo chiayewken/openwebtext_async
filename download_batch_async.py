@@ -45,7 +45,7 @@ async def fetch_htmls_loop(urls):
         # responses = asyncio.gather(*tasks)
         # await responses
         responses = []
-        for t in tqdm.tqdm(asyncio.as_completed(tasks), total=len(tasks)):
+        for t in tqdm(asyncio.as_completed(tasks), total=len(tasks)):
             responses.append(await t)
         return responses
 
