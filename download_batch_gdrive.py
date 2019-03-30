@@ -247,6 +247,7 @@ def firebase_init(gdrive_dir):
 
 
 def firebase_batch_status_update(gdrive_dir):
+    # to be used separately, ideally when no workers are running
     urls_dir = gdrive_dir.joinpath("urls")
     downloads_dir = gdrive_dir.joinpath("downloads")
     urls = [p for p in urls_dir.iterdir() if p.is_file()]
@@ -282,7 +283,7 @@ if __name__ == "__main__":
     downloads_dir = gdrive_dir.joinpath("downloads")
     downloads_dir.mkdir(exist_ok=True)
     urls = [p for p in urls_dir.iterdir() if p.is_file()]
-    print("urls found: ", len(urls))
+    print("url files found: ", len(urls))
     local_folders = [args.output_dir, args.state_dir]
     firebase_init(gdrive_dir)
 
