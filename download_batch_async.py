@@ -9,6 +9,9 @@ import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
 import tempfile
+import sys
+
+sys.tracebacklimit = 0  # suppress url error reports
 
 
 async def fetch(url, session):
@@ -101,11 +104,11 @@ def firebase_init(work_dir):
 
 
 def firebase_check_exists(id):
-    return id in db.reference().get()
+    return str(id) in db.reference().get()
 
 
 def firebase_set(id, value):
-    db.reference(id).set(value)
+    db.reference(str(id)).set(value)
 
 
 def get_batch_urls(urls_file, idx, batch_size):
@@ -113,3 +116,18 @@ def get_batch_urls(urls_file, idx, batch_size):
     batch_range = range(idx * batch_size, (idx + 1) * batch_size)
     with open(urls_file) as f:
         return [x.strip() for (i, x) in enumerate(f) if i in batch_range]
+
+
+def main(work_dir, batch_size=100000):
+    """
+    get chunks
+    fetch htmls
+    save and archive
+    send to google drive
+    delete archive
+    """
+    num_total_urls = count_total_lines(work_dir.joinpath("urls.txt"))
+    num_total_batchs = count_batches(num_total_urls, batch_size)
+    for i in range(num_total_batchs):
+        if 
+
