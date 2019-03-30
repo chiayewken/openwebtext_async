@@ -164,12 +164,15 @@ def main(gdrive_dir, batch_size=100000):
     save_dir.mkdir(exist_ok=True)
     gdrive_dir.joinpath(save_dir).mkdir(exist_ok=True)
     num_total_urls = count_total_lines(gdrive_dir.joinpath("urls.txt"))
-    num_total_batchs = count_batches(num_total_urls, batch_size)
+    num_total_batches = count_batches(num_total_urls, batch_size)
+    print("num_total_urls:", num_total_urls)
+    print("num_total_batches", num_total_batches)
 
-    for batch_idx in range(num_total_batchs):
+    for batch_idx in range(num_total_batches):
         # this format will allow us to recover exact line indices if necessary
         batch_name = "{}_{}".format(batch_size, batch_idx)
-        if not firebase_check_exists(batch_name):
+        print("handling batch:", batch_name)
+        if firebase_check_exists(batch_name):
             continue  # skip
 
         firebase_set(batch_name, True)
