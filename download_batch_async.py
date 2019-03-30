@@ -171,10 +171,10 @@ def main(gdrive_dir, batch_size=100000):
     for batch_idx in range(num_total_batches):
         # this format will allow us to recover exact line indices if necessary
         batch_name = "{}_{}".format(batch_size, batch_idx)
-        print("handling batch:", batch_name)
         if firebase_check_exists(batch_name):
             continue  # skip
 
+        print("handling batch:", batch_name)
         firebase_set(batch_name, True)
         urls = get_batch_urls(gdrive_dir.joinpath("urls.txt"), batch_idx, batch_size)
         htmls = fetch_htmls(urls)
