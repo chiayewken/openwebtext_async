@@ -176,7 +176,7 @@ def main(gdrive_dir, batch_size=100000):
             continue  # skip
 
         firebase_set(batch_name, True)
-        urls = get_batch_urls(batch_idx, batch_size)
+        urls = get_batch_urls(gdrive_dir.joinpath("urls.txt"), batch_idx, batch_size)
         htmls = fetch_htmls(urls)
         save_htmls(htmls, save_dir)
         archive_fname = archive(save_dir, Path(batch_name), compress=True)
