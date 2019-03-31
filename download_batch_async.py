@@ -181,3 +181,4 @@ def main(gdrive_dir, batch_size=100000, verbose=False):
         archive_fname = archive(save_dir, Path(batch_name), compress=True)
         shutil.move(archive_fname, gdrive_dir.joinpath(save_dir, archive_fname))
         shutil.rmtree(save_dir)
+        save_dir.mkdir()
