@@ -146,7 +146,7 @@ def get_batch_urls(urls_file, idx, batch_size):
         return [x.strip() for (i, x) in enumerate(f) if i in batch_range]
 
 
-def main(gdrive_dir, batch_size=100000):
+def main(gdrive_dir, batch_size=100000, verbose=False):
     """
     init
     get chunks
@@ -155,7 +155,8 @@ def main(gdrive_dir, batch_size=100000):
     send to google drive
     delete archive
     """
-    sys.tracebacklimit = 0  # suppress url error reports
+    if not verbose:
+        sys.tracebacklimit = 0  # suppress url error reports
 
     firebase_init(gdrive_dir)
     save_dir = Path("downloads")
