@@ -148,7 +148,7 @@ def get_batch_urls(urls_file, idx, batch_size):
         return [x.strip() for (i, x) in enumerate(f) if i in batch_range]
 
 
-def sync_gdrive_with_firebase(gdrive_dir, save_dir):
+def firebase_sync_gdrive(gdrive_dir, save_dir):
     # manually align firebase entries to gdrive archives
     batch_names = [p for p in gdrive_dir.joinpath(save_dir).iterdir()]
     dict_new = {p.stem: True for p in batch_names}
