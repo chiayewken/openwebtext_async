@@ -52,7 +52,7 @@ async def bound_fetch(sem, url, session):
         return await fetch(url, session)
 
 
-async def fetch_htmls_loop(urls):
+async def fetch_htmls_loop(urls, hide_progress):
     # reference: https://pawelmhm.github.io/asyncio/python/aiohttp/2016/04/22/asyncio-aiohttp.html
     tasks = []
     # Semaphore to avoid python open file limit
@@ -70,14 +70,16 @@ async def fetch_htmls_loop(urls):
         # responses = asyncio.gather(*tasks)
         # await responses
         responses = []
-        for t in tqdm(asyncio.as_completed(tasks), total=len(tasks)):
+        for t in tqdm(
+            asyncio.as_completed(tasks), total=len(tasks), disable=hide_progress
+        ):
             responses.append(await t)
         return responses
 
 
-def fetch_htmls(urls):
+def fetch_htmls(urls, hide_progress):
     loop = asyncio.get_event_loop()
-    future = asyncio.ensure_future(fetch_htmls_loop(urls))
+    future = asyncio.ensure_future(fetch_htmls_loop(urls, hide_progress))
     return loop.run_until_complete(future)
 
 
@@ -146,7 +148,18 @@ def get_batch_urls(urls_file, idx, batch_size):
         return [x.strip() for (i, x) in enumerate(f) if i in batch_range]
 
 
-def main(gdrive_dir, batch_size=100000, verbose=False):
+def sync_gdrive_with_firebase(gdrive_dir, save_dir):
+    # manually align firebase entries to gdrive archives
+    batch_names = [p for p in gdrive_dir.joinpath(save_dir).iterdir()]
+    dict_new = {p.stem: True for p in batch_names}
+    dict_old = db.reference().get()
+    # sanity check: each archive should already be listed in firebase
+    assert all(key in dict_old for key in dict_new)
+    db.reference().set(dict_new)
+
+
+def main(gdrive_dir, batch_size=100000, hide_tracebacks=True, hide_progress=True):
+    # should hide tqdm for long iterations because the output will slow down notebooks
     """
     init
     get chunks
@@ -155,14 +168,15 @@ def main(gdrive_dir, batch_size=100000, verbose=False):
     send to google drive
     delete archive
     """
-    if not verbose:
+    if hide_tracebacks:
         sys.tracebacklimit = 0  # suppress url error reports
 
     firebase_init(gdrive_dir)
+    urls_file = gdrive_dir.joinpath("urls.txt")
     save_dir = Path("downloads")
     save_dir.mkdir(exist_ok=True)
     gdrive_dir.joinpath(save_dir).mkdir(exist_ok=True)
-    num_total_urls = count_total_lines(gdrive_dir.joinpath("urls.txt"))
+    num_total_urls = count_total_lines(urls_file)
     num_total_batches = count_batches(num_total_urls, batch_size)
     print("num_total_urls:", num_total_urls)
     print("num_total_batches", num_total_batches)
@@ -175,8 +189,8 @@ def main(gdrive_dir, batch_size=100000, verbose=False):
 
         print("handling batch:", batch_name)
         firebase_set(batch_name, True)
-        urls = get_batch_urls(gdrive_dir.joinpath("urls.txt"), batch_idx, batch_size)
-        htmls = fetch_htmls(urls)
+        urls = get_batch_urls(urls_file, batch_idx, batch_size)
+        htmls = fetch_htmls(urls, hide_progress)
         save_htmls(htmls, save_dir)
         archive_fname = archive(save_dir, Path(batch_name), compress=True)
         shutil.move(archive_fname, gdrive_dir.joinpath(save_dir, archive_fname))
