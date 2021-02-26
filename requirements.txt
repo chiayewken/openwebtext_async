@@ -29,4 +29,4 @@ urllib3==1.24.1
 urlparse2==1.1.1
 pycurl==7.21.5
 firebase-admin==2.16.0
-aiohttp==3.5.4
+aiohttp==3.7.4
